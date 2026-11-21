@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="犬同伴マップ" />
+  <title>犬同伴マップ</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Segoe UI", sans-serif;
+      overflow: hidden; background: #f5f5f5;
+    }
+    #map { width: 100%; height: 100%; z-index: 1; }
+
+    /* 上部コントロールエリア */
+    .top-controls {
+      position: fixed;
+      top: env(safe-area-inset-top, 0px);
+      left: 0; right: 0;
+      z-index: 1000;
+      padding: 10px 12px 6px;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .search-row {
+      display: flex;
+      gap: 6px;
+      pointer-events: auto;
+    }
+    .search-box {
+      flex: 1;
+      display: flex;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.14);
+      overflow: hidden;
+    }
+    .search-box input {
+      flex: 1;
+      border: none;
+      outline: none;
+      padding: 10px 12px;
+      font-size: 15px;
+      min-width: 0;
+    }
+    .search-box button {
+      border: none;
+      background: #1a73e8;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 0 14px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .area-select {
+      border: none;
+      border-radius: 12px;
+      background: #fff;
+      padding: 0 10px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #333;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.14);
+      max-width: 130px;
+    }
+
+    /* カテゴリ絞り込みチップ */
+    .category-bar {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 6px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 2px 16px 4px 0; /* 右端が切れないよう余白を確保 */
+      pointer-events: auto;
+      scrollbar-width: none;
+    }
+    .category-bar::-webkit-scrollbar { display: none; }
+    .chip {
+      flex-shrink: 0; /* 画面幅が狭くてもチップ自体が潰れないようにする */
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(0,0,0,0.08);
+      background: rgba(255,255,255,0.95);
+      color: #333;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.12);
+      cursor: pointer;
+    }
+    .chip.active {
+      background: #222;
+      color: #fff;
+      border-color: #222;
+    }
+    .chip-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* 件数バッジ */
+    .count-badge {
+      position: fixed;
+      left: 12px;
+      bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+      z-index: 900;
+      background: rgba(34, 34, 34, 0.85);
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      pointer-events: none;
+    }
+
+    /* カスタムピン */
+    .custom-pin {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      border: 2.5px solid #fff;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+    }
+
+    /* ハーフモーダル詳細パネル */
+    .sheet {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      z-index: 1200;
+      background: #fff;
+      border-radius: 20px 20px 0 0;
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.2);
+      padding: 12px 18px calc(20px + env(safe-area-inset-bottom, 0px));
+      transform: translateY(105%);
+      transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+      max-height: 65vh;
+      overflow-y: auto;
+    }
+    .sheet.open { transform: translateY(0); }
+    .sheet-handle {
+      width: 38px; height: 4px;
+      border-radius: 99px;
+      background: #d0d0d0;
+      margin: 0 auto 12px;
+    }
+    .sheet-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .sheet-title {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+      color: #111;
+      line-height: 1.35;
+    }
+    .sheet-close {
+      border: none;
+      background: #f0f0f0;
+      color: #555;
+      width: 30px; height: 30px;
+      border-radius: 50%;
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .sheet-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 8px 0 12px;
+    }
+    .tag {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      background: #f1f3f4;
+      color: #333;
+    }
+    .tag-cat { color: #fff; }
+    .sheet-meta {
+      font-size: 13px;
+      color: #444;
+      line-height: 1.65;
+      margin-bottom: 14px;
+    }
+    .sheet-meta div { margin-bottom: 4px; }
+    .rating-row {
+      display: flex;
+      gap: 14px;
+      font-weight: 600;
+      color: #222;
+      margin-bottom: 6px;
+    }
+    .btn-primary {
+      display: block;
+      width: 100%;
+      text-align: center;
+      text-decoration: none;
+      background: #1a73e8;
+      color: #fff;
+      font-weight: 700;
+      font-size: 15px;
+      padding: 12px;
+      border-radius: 12px;
+      margin-bottom: 8px;
+    }
+    .sub-links {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .btn-sub {
+      flex: 1;
+      min-width: 90px;
+      text-align: center;
+      text-decoration: none;
+      background: #f1f3f4;
+      color: #222;
+      font-weight: 600;
+      font-size: 13px;
+      padding: 9px 10px;
+      border-radius: 10px;
+    }
+    /* 検索候補リスト */
+    .search-wrapper {
+      position: relative;
+      flex: 1;
+      min-width: 0;
+    }
+    .search-results {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+      max-height: 240px;
+      overflow-y: auto;
+      z-index: 1100;
+      display: none;
+    }
+    .search-results.open { display: block; }
+    .search-result-item {
+      padding: 10px 12px;
+      font-size: 13px;
+      color: #222;
+      border-bottom: 1px solid #f0f0f0;
+      cursor: pointer;
+    }
+    .search-result-item:last-child { border-bottom: none; }
+    .search-result-item:hover { background: #f5f7fa; }
+  </style>
+</head>
+<body>
+
+  <div class="top-controls">
+    <div class="search-row">
+      <div class="search-wrapper">
+        <div class="search-box">
+          <input id="searchInput" type="search" placeholder="地名・駅名で移動（例: 麻布十番, 江の島）" />
+          <button id="searchBtn" type="button">検索</button>
+        </div>
+        <div id="searchResults" class="search-results"></div>
+      </div>
+      <select id="areaSelect" class="area-select">
+        <option value="ALL">全エリア</option>
+      </select>
+    </div>
+    <div id="categoryBar" class="category-bar"></div>
+  </div>
+
+  <div id="map"></div>
+  <div id="countBadge" class="count-badge">読み込み中...</div>
+
+  <div id="detailSheet" class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <h2 id="sheetTitle" class="sheet-title"></h2>
+      <button id="sheetClose" class="sheet-close" type="button">×</button>
+    </div>
+    <div id="sheetTags" class="sheet-tags"></div>
+    <div id="sheetMeta" class="sheet-meta"></div>
+    <a id="btnGmaps" class="btn-primary" href="#" target="_blank" rel="noopener">Googleマップで開く</a>
+    <div id="subLinks" class="sub-links"></div>
+  </div>
+
+  <script>
+    const CATEGORY_COLORS = {
+      "和食・寿司": "#2E7D32",         // 深い緑（抹茶・和）
+      "焼肉・肉料理": "#D32F2F",       // 濃い赤（肉・炭火）
+      "ラーメン・麺類": "#EAB308",     // 明るい黄（麺・スープ）
+      "洋食・ハンバーガー": "#F97316", // オレンジ（バンズ・グリル）
+      "イタリアン・フレンチ": "#7C3AED", // 紫（ワイン・ビストロ）
+      "中華・アジア": "#06B6D4",       // 水色・シアン（青磁・エスニック）
+      "居酒屋・バー": "#1E3A8A",       // 濃紺（夜の酒場・のれん）
+      "カフェ・喫茶": "#795548",       // ブラウン（コーヒー）
+      "パン・スイーツ": "#EC4899",     // ピンク（スイーツ・華やかさ）
+      "その他飲食店": "#64748B"        // グレー（ニュートラル）
+    };
+    const DEFAULT_COLOR = "#757575";
+
+    const map = L.map("map", { zoomControl: false }).setView([35.6812, 139.7671], 12);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19
+    }).addTo(map);
+
+    const markerLayer = L.layerGroup().addTo(map);
+    let allStores = [];
+    let selectedCategory = "ALL";
+    let selectedArea = "ALL";
+
+    const sheet = document.getElementById("detailSheet");
+    const closeSheet = () => sheet.classList.remove("open");
+    document.getElementById("sheetClose").addEventListener("click", closeSheet);
+    map.on("click", closeSheet);
+
+    function getCategoryColor(cat) {
+      return CATEGORY_COLORS[cat] || DEFAULT_COLOR;
+    }
+
+    function openDetail(store) {
+      document.getElementById("sheetTitle").textContent = store.name;
+
+      const tagsEl = document.getElementById("sheetTags");
+      tagsEl.innerHTML = "";
+      const catTag = document.createElement("span");
+      catTag.className = "tag tag-cat";
+      catTag.style.background = getCategoryColor(store.category);
+      catTag.textContent = store.category;
+      tagsEl.appendChild(catTag);
+
+      if (store.genre) {
+        const g = document.createElement("span");
+        g.className = "tag";
+        g.textContent = store.genre;
+        tagsEl.appendChild(g);
+      }
+      if (store.seating) {
+        const s = document.createElement("span");
+        s.className = "tag";
+        s.textContent = `席種: ${store.seating}`;
+        tagsEl.appendChild(s);
+      }
+
+      const metaLines = [];
+      const ratings = [];
+      if (store.googleRating) ratings.push(`Google ★${store.googleRating}`);
+      if (store.tabelogScore) ratings.push(`食べログ ${store.tabelogScore}`);
+      if (ratings.length) {
+        metaLines.push(`<div class="rating-row">${ratings.map(r => `<span>${r}</span>`).join("")}</div>`);
+      }
+      if (store.address) metaLines.push(`<div>📍 ${store.address}</div>`);
+      if (store.phone) metaLines.push(`<div>📞 <a href="tel:${store.phone}">${store.phone}</a></div>`);
+      if (store.confidence) metaLines.push(`<div>🐶 確度: ${store.confidence}（${store.area}）</div>`);
+      document.getElementById("sheetMeta").innerHTML = metaLines.join("");
+
+      document.getElementById("btnGmaps").href = store.googleMapsUrl;
+
+      const subEl = document.getElementById("subLinks");
+      subEl.innerHTML = "";
+      const links = [
+        { label: "食べログ", url: store.tabelogUrl },
+        { label: "ぐるなび", url: store.gnaviUrl },
+        { label: "公式サイト", url: store.website }
+      ];
+      links.forEach(item => {
+        if (!item.url) return;
+        const a = document.createElement("a");
+        a.className = "btn-sub";
+        a.href = item.url;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.textContent = item.label;
+        subEl.appendChild(a);
+      });
+
+      sheet.classList.add("open");
+    }
+
+    function renderMarkers(fit = false) {
+      markerLayer.clearLayers();
+      const filtered = allStores.filter(s => {
+        const matchCat = selectedCategory === "ALL" || s.category === selectedCategory;
+        const matchArea = selectedArea === "ALL" || s.area === selectedArea;
+        return matchCat && matchArea;
+      });
+
+      const bounds = [];
+      filtered.forEach(store => {
+        const color = getCategoryColor(store.category);
+        const icon = L.divIcon({
+          className: "",
+          html: `<div class="custom-pin" style="background:${color};"></div>`,
+          iconSize: [22, 22],
+          iconAnchor: [11, 11]
+        });
+        const marker = L.marker([store.lat, store.lng], { icon });
+        marker.on("click", (e) => {
+          L.DomEvent.stopPropagation(e);
+          openDetail(store);
+        });
+        marker.addTo(markerLayer);
+        bounds.push([store.lat, store.lng]);
+      });
+
+      document.getElementById("countBadge").textContent = `${filtered.length}件 表示中`;
+      if (fit && bounds.length > 0) {
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+      }
+    }
+
+    function buildFilters() {
+      // エリア選択
+      const areaSelect = document.getElementById("areaSelect");
+      const areas = [...new Set(allStores.map(s => s.area))].sort();
+      areas.forEach(area => {
+        const opt = document.createElement("option");
+        opt.value = area;
+        opt.textContent = area.replace(/^(東京都|神奈川県)/, "");
+        areaSelect.appendChild(opt);
+      });
+      areaSelect.addEventListener("change", () => {
+        selectedArea = areaSelect.value;
+        closeSheet();
+        renderMarkers(true);
+      });
+
+      // カテゴリチップ（CATEGORY_COLORS の定義順で固定）
+      const bar = document.getElementById("categoryBar");
+      const existing = new Set(allStores.map(s => s.category));
+      const ordered = Object.keys(CATEGORY_COLORS).filter(c => existing.has(c));
+      const extras = [...existing].filter(c => !(c in CATEGORY_COLORS));
+      const categories = ["ALL", ...ordered, ...extras];
+      categories.forEach(cat => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "chip" + (cat === "ALL" ? " active" : "");
+        if (cat === "ALL") {
+          btn.textContent = "すべて";
+        } else {
+          btn.innerHTML = `<span class="chip-dot" style="background:${getCategoryColor(cat)};"></span>${cat}`;
+        }
+        btn.addEventListener("click", () => {
+          selectedCategory = cat;
+          document.querySelectorAll(".chip").forEach(c => c.classList.remove("active"));
+          btn.classList.add("active");
+          closeSheet();
+          renderMarkers(false);
+        });
+        bar.appendChild(btn);
+      });
+      // カテゴリバー上のマウスホイールを横スクロールに変換（PC用）
+      document.getElementById("categoryBar").addEventListener("wheel", (e) => {
+        if (Math.abs(e.deltaY) > 0) {
+          e.preventDefault();
+          e.currentTarget.scrollLeft += e.deltaY;
+        }
+      }, { passive: false });
+    }
+
+    const searchResultsEl = document.getElementById("searchResults");
+    const closeSearchResults = () => {
+      searchResultsEl.classList.remove("open");
+      searchResultsEl.innerHTML = "";
+    };
+    map.on("click", closeSearchResults);
+
+    // 地名・住所検索（候補リスト表示対応）
+    async function searchLocation() {
+      const q = document.getElementById("searchInput").value.trim();
+      if (!q) {
+        closeSearchResults();
+        return;
+      }
+      try {
+        const res = await fetch(`https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        if (!data || data.length === 0) {
+          closeSearchResults();
+          alert(`「${q}」が見つかりませんでした．`);
+          return;
+        }
+
+        // 候補が1件だけならそのまま移動
+        if (data.length === 1) {
+          const [lng, lat] = data[0].geometry.coordinates;
+          map.flyTo([lat, lng], 15, { duration: 0.8 });
+          closeSearchResults();
+          document.getElementById("searchInput").blur();
+          return;
+        }
+
+        // 複数ある場合は最大10件を候補リストに表示
+        searchResultsEl.innerHTML = "";
+        data.slice(0, 10).forEach(item => {
+          const div = document.createElement("div");
+          div.className = "search-result-item";
+          div.textContent = item.properties.title;
+          div.addEventListener("click", () => {
+            const [lng, lat] = item.geometry.coordinates;
+            map.flyTo([lat, lng], 15, { duration: 0.8 });
+            document.getElementById("searchInput").value = item.properties.title;
+            closeSearchResults();
+            document.getElementById("searchInput").blur();
+          });
+          searchResultsEl.appendChild(div);
+        });
+        searchResultsEl.classList.add("open");
+      } catch (e) {
+        alert("検索中に通信エラーが発生しました．");
+      }
+    }
+
+    document.getElementById("searchBtn").addEventListener("click", searchLocation);
+    document.getElementById("searchInput").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") searchLocation();
+    });
+
+    // JSON読み込み
+    fetch("./stores.json")
+      .then(res => {
+        if (!res.ok) throw new Error("stores.json が見つかりません");
+        return res.json();
+      })
+      .then(data => {
+        allStores = data;
+        buildFilters();
+        renderMarkers(true);
+      })
+      .catch(err => {
+        document.getElementById("countBadge").textContent = "読込エラー";
+        alert(err.message + "\nbuild_json.py を実行して stores.json を生成してください．");
+      });
+  </script>
+</body>
+</html>
